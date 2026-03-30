@@ -7,10 +7,6 @@ import java.awt.*;
 import java.awt.event.*;
 import java.util.List;
 
-/**
- * Panel de rendu.
- * Contrôles : [R] / double-clic = régénère | molette = zoom | drag = pan
- */
 public class DungeonPanel extends JPanel implements Runnable {
 
     private static final int SCALE   = 7;
@@ -18,20 +14,20 @@ public class DungeonPanel extends JPanel implements Runnable {
     private static final int WORLD_H = 110;
 
     // Palette
-    private static final Color BG           = new Color(10, 10, 18);
-    private static final Color COL_GRID     = new Color(22, 26, 40);
-    private static final Color COL_CONT     = new Color(35, 42, 65, 60);
-    private static final Color COL_CORRIDOR = new Color(100, 75, 45);
-    private static final Color COL_COR_EDGE = new Color(140, 110, 70);
-    private static final Color COL_ROOM     = new Color(165, 35, 35);
-    private static final Color COL_ROOM_E   = new Color(220, 55, 55);
-    private static final Color COL_ENTRANCE = new Color(50, 190, 70);
-    private static final Color COL_ENTRANCE_E = new Color(80, 240, 100);
-    private static final Color COL_MINIBOSS = new Color(210, 120, 15);
-    private static final Color COL_MINIBOSS_E = new Color(255, 170, 40);
-    private static final Color COL_BOSS     = new Color(120, 40, 190);
-    private static final Color COL_BOSS_E   = new Color(170, 80, 240);
-    private static final Color COL_LABEL    = new Color(235, 235, 245);
+    private static final Color BG             = new Color(10, 10, 18);
+    private static final Color COL_GRID       = new Color(20, 24, 38);
+    private static final Color COL_CORRIDOR   = new Color(95, 72, 42);
+    private static final Color COL_COR_DARK   = new Color(38, 28, 14);
+    private static final Color COL_COR_LIGHT  = new Color(145, 115, 72);
+    private static final Color COL_ROOM_FILL  = new Color(160, 32, 32);
+    private static final Color COL_ROOM_EDGE  = new Color(215, 55, 55);
+    private static final Color COL_ENTRANCE_F = new Color(45, 185, 65);
+    private static final Color COL_ENTRANCE_E = new Color(75, 235, 95);
+    private static final Color COL_MBOSS_F    = new Color(205, 115, 10);
+    private static final Color COL_MBOSS_E    = new Color(255, 165, 35);
+    private static final Color COL_BOSS_F     = new Color(115, 35, 185);
+    private static final Color COL_BOSS_E     = new Color(165, 75, 235);
+    private static final Color COL_LABEL      = new Color(235, 235, 245);
 
     private DungeonGenerator dungeon;
     private double zoom = 1.0;
@@ -51,10 +47,6 @@ public class DungeonPanel extends JPanel implements Runnable {
         repaint();
     }
 
-    // ---------------------------------------------------------------
-    // Rendu
-    // ---------------------------------------------------------------
-
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
@@ -63,7 +55,6 @@ public class DungeonPanel extends JPanel implements Runnable {
         Graphics2D g2 = (Graphics2D) g.create();
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,      RenderingHints.VALUE_ANTIALIAS_ON);
         g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-
         g2.translate(panX, panY);
         g2.scale(zoom, zoom);
 
@@ -74,163 +65,128 @@ public class DungeonPanel extends JPanel implements Runnable {
 
         g2.dispose();
         drawLegend((Graphics2D) g);
-        drawHint((Graphics2D) g);
     }
 
+    // --- Grille ---
     private void drawGrid(Graphics2D g2) {
         g2.setColor(COL_GRID);
-        g2.setStroke(new BasicStroke(0.5f));
+        g2.setStroke(new BasicStroke(0.4f));
         for (int x = 0; x <= WORLD_W; x += 5)
             g2.drawLine(x*SCALE, 0, x*SCALE, WORLD_H*SCALE);
         for (int y = 0; y <= WORLD_H; y += 5)
             g2.drawLine(0, y*SCALE, WORLD_W*SCALE, y*SCALE);
     }
 
+    // --- Conteneurs BSP (debug léger) ---
     private void drawContainers(Graphics2D g2, Node node, int depth) {
         if (node == null) return;
-        int alpha = Math.max(15, 55 - depth * 9);
-        g2.setColor(new Color(50, 65, 110, alpha));
-        g2.setStroke(new BasicStroke(0.7f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER,
-                10f, new float[]{3, 5}, 0f));
+        g2.setColor(new Color(45, 60, 100, Math.max(10, 50 - depth*9)));
+        g2.setStroke(new BasicStroke(0.6f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER,
+                10f, new float[]{3, 6}, 0f));
         g2.drawRect(node.rect.x*SCALE, node.rect.y*SCALE,
                 node.rect.width*SCALE, node.rect.height*SCALE);
         drawContainers(g2, node.left,  depth+1);
         drawContainers(g2, node.right, depth+1);
     }
 
+    // --- Couloirs ---
     private void drawCorridors(Graphics2D g2) {
         for (Corridor c : dungeon.corridors) {
-            // Contour sombre
-            g2.setColor(new Color(40, 28, 15));
-            drawCorridorFilled(g2, c, SCALE, Corridor.THICKNESS + 1);
+            // Ombre extérieure
+            g2.setColor(COL_COR_DARK);
+            c.draw(g2, SCALE, Corridor.THICKNESS + 1);
             // Corps
             g2.setColor(COL_CORRIDOR);
-            drawCorridorFilled(g2, c, SCALE, Corridor.THICKNESS);
-            // Reflet léger (ligne fine au centre)
-            g2.setColor(COL_COR_EDGE);
-            g2.setStroke(new BasicStroke(0.8f));
-            drawCorridorLine(g2, c, SCALE);
+            c.draw(g2, SCALE, Corridor.THICKNESS);
+            // Reflet central
+            g2.setColor(COL_COR_LIGHT);
+            g2.setStroke(new BasicStroke(0.7f));
+            int px1=c.x1*SCALE, py1=c.y1*SCALE, pmx=c.midX*SCALE, pmy=c.midY*SCALE;
+            int px2=c.x2*SCALE, py2=c.y2*SCALE;
+            g2.drawLine(px1, py1, pmx, pmy);
+            g2.drawLine(pmx, pmy, px2, py2);
         }
     }
 
-    /** Remplit le couloir en L avec une épaisseur donnée (en unités logiques). */
-    private void drawCorridorFilled(Graphics2D g2, Corridor c, int scale, int thickness) {
-        int x1 = c.from().x*scale, y1 = c.from().y*scale;
-        int x2 = c.to().x*scale,   y2 = c.to().y*scale;
-        int t  = thickness*scale;
-
-        int midX = c.hFirst() ? x2 : x1;
-        int midY = c.hFirst() ? y1 : y2;
-
-        g2.fillRect(Math.min(x1,midX), y1-t/2, Math.abs(midX-x1)+t, t);
-        g2.fillRect(midX-t/2, Math.min(y1,y2), t, Math.abs(y2-y1)+t);
-    }
-
-    /** Trace une ligne fine au centre du couloir (reflet). */
-    private void drawCorridorLine(Graphics2D g2, Corridor c, int scale) {
-        int x1 = c.from().x*scale, y1 = c.from().y*scale;
-        int x2 = c.to().x*scale,   y2 = c.to().y*scale;
-        int midX = c.hFirst() ? x2 : x1;
-        int midY = c.hFirst() ? y1 : y2;
-        g2.drawLine(x1, y1, midX, midY);
-        g2.drawLine(midX, midY, x2, y2);
-    }
-
+    // --- Salles ---
     private void drawRooms(Graphics2D g2) {
         for (Node leaf : dungeon.leaves) {
             Room room = leaf.room;
             if (room == null) continue;
 
             Color[] cols = roomColors(room.type);
-            Color fill = cols[0], edge = cols[1];
-
             int rx = room.x*SCALE, ry = room.y*SCALE;
             int rw = room.width*SCALE, rh = room.height*SCALE;
 
             // Ombre portée
-            g2.setColor(new Color(0, 0, 0, 90));
-            g2.fillRoundRect(rx+4, ry+4, rw, rh, 8, 8);
+            g2.setColor(new Color(0, 0, 0, 100));
+            g2.fillRoundRect(rx+4, ry+5, rw, rh, 8, 8);
 
-            // Sol (texture légère : dégradé simulé avec deux rect)
-            g2.setColor(fill.darker());
+            // Sol sombre
+            g2.setColor(cols[0].darker());
             g2.fillRoundRect(rx, ry, rw, rh, 8, 8);
-            g2.setColor(fill);
-            g2.fillRoundRect(rx+1, ry+1, rw-2, rh/2, 8, 8);
+            // Partie haute plus claire (lumière venue du plafond)
+            g2.setColor(cols[0]);
+            g2.fillRoundRect(rx+1, ry+1, rw-2, rh*2/3, 7, 7);
 
-            // Bordure
-            g2.setColor(edge);
-            g2.setStroke(new BasicStroke(1.8f));
+            // Bordure lumineuse
+            g2.setColor(cols[1]);
+            g2.setStroke(new BasicStroke(1.6f));
             g2.drawRoundRect(rx, ry, rw, rh, 8, 8);
 
-            // Label salles spéciales
-            String label = label(room.type);
-            if (!label.isEmpty()) {
-                Font f = new Font("Monospaced", Font.BOLD, 10);
-                g2.setFont(f);
+            // Label
+            String lbl = label(room.type);
+            if (!lbl.isEmpty()) {
+                g2.setFont(new Font("Monospaced", Font.BOLD, 10));
                 FontMetrics fm = g2.getFontMetrics();
-                int lw = fm.stringWidth(label);
+                int lw = fm.stringWidth(lbl);
                 int cx = rx + (rw - lw) / 2;
                 int cy = ry + (rh + fm.getAscent() - fm.getDescent()) / 2;
-                // Fond du label
-                g2.setColor(new Color(0, 0, 0, 160));
-                g2.fillRoundRect(cx-4, cy-fm.getAscent()-1, lw+8, fm.getHeight()+2, 5, 5);
+                g2.setColor(new Color(0, 0, 0, 170));
+                g2.fillRoundRect(cx-4, cy-fm.getAscent()-1, lw+8, fm.getHeight()+2, 4, 4);
                 g2.setColor(COL_LABEL);
-                g2.drawString(label, cx, cy);
+                g2.drawString(lbl, cx, cy);
             }
         }
     }
 
+    // --- Légende ---
     private void drawLegend(Graphics2D g2) {
-        int x = 12, y = getHeight() - 140;
-        Object[][] entries = {
-                {COL_ENTRANCE, "Entrée"},
-                {COL_MINIBOSS, "Mini-boss"},
-                {COL_BOSS,     "Boss"},
-                {COL_ROOM,     "Salle"},
-                {COL_CORRIDOR, "Couloir"},
+        Object[][] e = {
+                {COL_ENTRANCE_F, "Entrée"},
+                {COL_MBOSS_F,    "Mini-boss"},
+                {COL_BOSS_F,     "Boss"},
+                {COL_ROOM_FILL,  "Salle normale"},
+                {COL_CORRIDOR,   "Couloir"},
         };
-        int lineH = 22, bw = 16, bh = 16, pad = 8;
-        int boxW = 148, boxH = entries.length * lineH + 34;
-
-        g2.setColor(new Color(8, 10, 20, 210));
-        g2.fillRoundRect(x-6, y-24, boxW, boxH, 10, 10);
-        g2.setColor(new Color(55, 70, 110));
+        int x=12, y=getHeight()-148, lh=22, bw=16, bh=16, pd=8;
+        g2.setColor(new Color(8,10,20,215));
+        g2.fillRoundRect(x-6, y-24, 158, e.length*lh+34, 10, 10);
+        g2.setColor(new Color(50,65,105));
         g2.setStroke(new BasicStroke(1f));
-        g2.drawRoundRect(x-6, y-24, boxW, boxH, 10, 10);
-
+        g2.drawRoundRect(x-6, y-24, 158, e.length*lh+34, 10, 10);
         g2.setFont(new Font("Monospaced", Font.BOLD, 11));
-        g2.setColor(new Color(170, 180, 210));
+        g2.setColor(new Color(165,175,210));
         g2.drawString("Légende   [R]=regen", x, y-6);
-
         g2.setFont(new Font("Monospaced", Font.PLAIN, 11));
-        for (int i = 0; i < entries.length; i++) {
-            Color c = (Color) entries[i][0];
-            g2.setColor(c);
-            g2.fillRoundRect(x, y + i*lineH, bw, bh, 4, 4);
-            g2.setColor(c.brighter());
-            g2.setStroke(new BasicStroke(1f));
-            g2.drawRoundRect(x, y + i*lineH, bw, bh, 4, 4);
-            g2.setColor(new Color(200, 205, 225));
-            g2.drawString((String) entries[i][1], x + bw + pad, y + i*lineH + bh - 2);
+        for (int i = 0; i < e.length; i++) {
+            Color c = (Color)e[i][0];
+            g2.setColor(c); g2.fillRoundRect(x, y+i*lh, bw, bh, 4, 4);
+            g2.setColor(c.brighter()); g2.drawRoundRect(x, y+i*lh, bw, bh, 4, 4);
+            g2.setColor(new Color(195,200,225));
+            g2.drawString((String)e[i][1], x+bw+pd, y+i*lh+bh-2);
         }
-    }
-
-    private void drawHint(Graphics2D g2) {
         g2.setFont(new Font("Monospaced", Font.PLAIN, 10));
-        g2.setColor(new Color(80, 90, 120));
-        g2.drawString("Molette=zoom  Drag=pan  DblClic=regen", 12, getHeight()-8);
+        g2.setColor(new Color(70,80,115));
+        g2.drawString("Molette=zoom  Drag=pan", 12, getHeight()-6);
     }
-
-    // ---------------------------------------------------------------
-    // Helpers couleur / label
-    // ---------------------------------------------------------------
 
     private static Color[] roomColors(RoomType t) {
         return switch (t) {
-            case ENTRANCE  -> new Color[]{COL_ENTRANCE,  COL_ENTRANCE_E};
-            case MINI_BOSS -> new Color[]{COL_MINIBOSS,  COL_MINIBOSS_E};
-            case BOSS      -> new Color[]{COL_BOSS,       COL_BOSS_E};
-            default        -> new Color[]{COL_ROOM,       COL_ROOM_E};
+            case ENTRANCE  -> new Color[]{COL_ENTRANCE_F, COL_ENTRANCE_E};
+            case MINI_BOSS -> new Color[]{COL_MBOSS_F,    COL_MBOSS_E};
+            case BOSS      -> new Color[]{COL_BOSS_F,     COL_BOSS_E};
+            default        -> new Color[]{COL_ROOM_FILL,  COL_ROOM_EDGE};
         };
     }
 
@@ -243,36 +199,32 @@ public class DungeonPanel extends JPanel implements Runnable {
         };
     }
 
-    // ---------------------------------------------------------------
-    // Contrôles
-    // ---------------------------------------------------------------
-
     private void setupControls() {
         addMouseWheelListener(e -> {
             double f = e.getWheelRotation() < 0 ? 1.12 : 0.89;
-            zoom = Math.max(0.25, Math.min(6.0, zoom * f));
+            zoom = Math.max(0.2, Math.min(6.0, zoom * f));
             repaint();
         });
         addMouseListener(new MouseAdapter() {
             public void mousePressed(MouseEvent e) {
-                dragStartX = e.getX(); dragStartY = e.getY();
-                panStartX  = panX;    panStartY  = panY;
+                dragStartX=e.getX(); dragStartY=e.getY();
+                panStartX=panX; panStartY=panY;
                 requestFocusInWindow();
             }
             public void mouseClicked(MouseEvent e) {
-                if (e.getClickCount() == 2) regenerate();
+                if (e.getClickCount()==2) regenerate();
             }
         });
         addMouseMotionListener(new MouseMotionAdapter() {
             public void mouseDragged(MouseEvent e) {
-                panX = panStartX + (e.getX() - dragStartX);
-                panY = panStartY + (e.getY() - dragStartY);
+                panX=panStartX+(e.getX()-dragStartX);
+                panY=panStartY+(e.getY()-dragStartY);
                 repaint();
             }
         });
         addKeyListener(new KeyAdapter() {
             public void keyPressed(KeyEvent e) {
-                if (e.getKeyCode() == KeyEvent.VK_R) regenerate();
+                if (e.getKeyCode()==KeyEvent.VK_R) regenerate();
             }
         });
     }
