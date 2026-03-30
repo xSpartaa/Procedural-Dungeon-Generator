@@ -20,7 +20,7 @@ public class DungeonPanel  extends JPanel implements Runnable {
 
         Node node = new Node(new Rectangle(0,0,100,100));
         int count = node.countNodes();
-        System.out.println(count);
+        System.out.println("count" +count);
         run();
     }
 

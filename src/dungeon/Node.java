@@ -4,12 +4,18 @@ import java.awt.*;
 
 public class Node {
     Rectangle node;
+    Room room;
     public Node left;
     public Node right;
 
     public Node(Rectangle node) {
         this.node = node;
-        generate(10);
+        generate(15);
+
+        //Si le nœud est une feuille, créer la Room.
+        if (left == null && right == null) {
+            room = new Room(this.node);
+        }
     }
 
     public void generate(int minSize) {
@@ -26,22 +32,39 @@ public class Node {
     }
 
     public Rectangle[] split(Rectangle rect) {
-        boolean isRatioOk = !(rect.height > 1.25*rect.width || rect.width > 1.25 * rect.height);
-        int randChoice = (int) (Math.random()*10);
-        System.out.println(randChoice);
-        int randRatio = 30 + (int) (Math.random()*10*4);
-        if (rect.height > 1.25 * rect.width || isRatioOk && randChoice > 5 ) {
-            int height2 = rect.height - rect.height / 100 * (randRatio);
-            rect.height -= height2;
-            int y2 = rect.y + rect.height;
-            return new Rectangle[]{new Rectangle(rect.x,rect.y,rect.width,rect.height),new Rectangle(rect.x,y2,rect.width,height2)};
-        } else if (rect.width > 1.25 * rect.height ||isRatioOk && randChoice < 5) {
-            int width2 = rect.width - rect.width / 100 * (randRatio);
-            rect.width -= width2;
-            int x2 = rect.x + rect.width;
-            return new Rectangle[] {new Rectangle(rect.x,rect.y,rect.width,rect.height),new Rectangle(x2,rect.y,width2,rect.height)};
+        // 1. On décide de l'orientation du split (Horizontal ou Vertical)
+        boolean splitHorizontal;
+        double ratio = (double) rect.width / rect.height;
+
+        if (rect.height > rect.width && 1.0 / ratio > 1.25) {
+            splitHorizontal = true; // Trop haut → coupe horizontale obligatoire
+        } else if (rect.width > rect.height && ratio > 1.25) {
+            splitHorizontal = false; // Trop large → coupe verticale obligatoire
+        } else {
+            splitHorizontal = Math.random() < 0.5; // Équilibré → hasard 50/50
         }
-        return null;
+
+        // 2. On calcule la proportion de la découpe (entre 30% et 70%)
+        double randPercent = 0.3 + (Math.random() * 0.4);
+
+        // 3. On crée les deux nouveaux rectangles SANS modifier l'original 'rect'
+        if (splitHorizontal) {
+            int h1 = (int) (rect.height * randPercent);
+            int h2 = rect.height - h1; // Le reste va au deuxième enfant
+
+            return new Rectangle[] {
+                    new Rectangle(rect.x, rect.y, rect.width, h1),
+                    new Rectangle(rect.x, rect.y + h1, rect.width, h2)
+            };
+        } else {
+            int w1 = (int) (rect.width * randPercent);
+            int w2 = rect.width - w1;
+
+            return new Rectangle[] {
+                    new Rectangle(rect.x, rect.y, w1, rect.height),
+                    new Rectangle(rect.x + w1, rect.y, w2, rect.height)
+            };
+        }
     }
 
     public int countNodes() {
