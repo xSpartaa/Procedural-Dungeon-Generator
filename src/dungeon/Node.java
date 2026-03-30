@@ -1,80 +1,123 @@
 package dungeon;
 
 import java.awt.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 
 public class Node {
-    Rectangle node;
-    Room room;
-    public Node left;
-    public Node right;
 
-    public Node(Rectangle node) {
-        this.node = node;
-        generate(15);
+    public final Rectangle rect;
+    public Node  left, right;
+    public Room  room;
+    public final List<Corridor> corridors = new ArrayList<>();
 
-        //Si le nœud est une feuille, créer la Room.
-        if (left == null && right == null) {
-            room = new Room(this.node);
-        }
+    public Node(Rectangle rect) {
+        this.rect = rect;
     }
 
     public void generate(int minSize) {
-        // Si trop petit, on arrête
-        if (node.width < minSize * 2 && node.height < minSize * 2) return;
+        if (left != null || right != null) return;
 
-        // On utilise ta logique de l'Exo 1 pour créer deux rectangles
-        Rectangle[] splitRects = split(this.node);
+        boolean canH = rect.height >= minSize * 2;
+        boolean canV = rect.width  >= minSize * 2;
+        if (!canH && !canV) return;
 
-        // On crée les enfants
-        this.left = new Node(splitRects[0]);
-        this.right = new Node(splitRects[1]);
+        Rectangle[] halves = split(minSize, canH, canV);
+        if (halves == null) return;
 
+        left  = new Node(halves[0]);
+        right = new Node(halves[1]);
+
+        left.generate(minSize);
+        right.generate(minSize);
     }
 
-    public Rectangle[] split(Rectangle rect) {
-        // 1. On décide de l'orientation du split (Horizontal ou Vertical)
-        boolean splitHorizontal;
-        double ratio = (double) rect.width / rect.height;
-
-        if (rect.height > rect.width && 1.0 / ratio > 1.25) {
-            splitHorizontal = true; // Trop haut → coupe horizontale obligatoire
-        } else if (rect.width > rect.height && ratio > 1.25) {
-            splitHorizontal = false; // Trop large → coupe verticale obligatoire
+    private Rectangle[] split(int minSize, boolean canH, boolean canV) {
+        boolean splitH;
+        if (canH && canV) {
+            double ratio = (double) rect.width / rect.height;
+            if (ratio > 1.25)       splitH = false;
+            else if (1.0/ratio > 1.25) splitH = true;
+            else                    splitH = ThreadLocalRandom.current().nextBoolean();
         } else {
-            splitHorizontal = Math.random() < 0.5; // Équilibré → hasard 50/50
+            splitH = canH;
         }
 
-        // 2. On calcule la proportion de la découpe (entre 30% et 70%)
-        double randPercent = 0.3 + (Math.random() * 0.4);
+        double pct = 0.35 + ThreadLocalRandom.current().nextDouble() * 0.30;
 
-        // 3. On crée les deux nouveaux rectangles SANS modifier l'original 'rect'
-        if (splitHorizontal) {
-            int h1 = (int) (rect.height * randPercent);
-            int h2 = rect.height - h1; // Le reste va au deuxième enfant
-
-            return new Rectangle[] {
-                    new Rectangle(rect.x, rect.y, rect.width, h1),
-                    new Rectangle(rect.x, rect.y + h1, rect.width, h2)
+        if (splitH) {
+            int h1 = (int)(rect.height * pct);
+            int h2 = rect.height - h1;
+            if (h1 < minSize || h2 < minSize) return null;
+            return new Rectangle[]{
+                    new Rectangle(rect.x, rect.y,        rect.width, h1),
+                    new Rectangle(rect.x, rect.y + h1,   rect.width, h2)
             };
         } else {
-            int w1 = (int) (rect.width * randPercent);
+            int w1 = (int)(rect.width * pct);
             int w2 = rect.width - w1;
-
-            return new Rectangle[] {
-                    new Rectangle(rect.x, rect.y, w1, rect.height),
+            if (w1 < minSize || w2 < minSize) return null;
+            return new Rectangle[]{
+                    new Rectangle(rect.x,      rect.y, w1, rect.height),
                     new Rectangle(rect.x + w1, rect.y, w2, rect.height)
             };
         }
     }
 
-    public int countNodes() {
-        if (left == null && right == null) return 1;
-        return 1 + left.countNodes() + right.countNodes();
+    public void createRooms() {
+        if (isLeaf()) {
+            room = new Room(rect);
+        } else {
+            if (left  != null) left.createRooms();
+            if (right != null) right.createRooms();
+        }
+    }
+
+    public void createBossRoom() {
+        if (isLeaf()) {
+            room = new Room(rect, true);
+            room.type = RoomType.BOSS;
+        }
+    }
+
+    public Node connectRooms() {
+        if (isLeaf()) return this;
+
+        Node lLeaf = (left  != null) ? left.connectRooms()  : null;
+        Node rLeaf = (right != null) ? right.connectRooms() : null;
+
+        if (lLeaf != null && rLeaf != null && lLeaf.room != null && rLeaf.room != null) {
+            corridors.add(new Corridor(lLeaf.room.center(), rLeaf.room.center()));
+        }
+
+        return (ThreadLocalRandom.current().nextBoolean() && lLeaf != null) ? lLeaf : (rLeaf != null ? rLeaf : lLeaf);
+    }
+
+
+    public boolean isLeaf() {
+        return left == null && right == null;
+    }
+
+    public Point getCenter() {
+        if (room != null) return room.center();
+        return new Point(rect.x + rect.width / 2, rect.y + rect.height / 2);
+    }
+
+    public void collectLeaves(List<Node> out) {
+        if (isLeaf()) { out.add(this); return; }
+        if (left  != null) left.collectLeaves(out);
+        if (right != null) right.collectLeaves(out);
+    }
+
+    public void collectCorridors(List<Corridor> out) {
+        out.addAll(corridors);
+        if (left  != null) left.collectCorridors(out);
+        if (right != null) right.collectCorridors(out);
     }
 
     @Override
     public String toString() {
-        return "Container -> x : "+node.x + " | y : "+node.y +" | width : "+node.width + " | height : "+node.height ;
+        return "Node[" + rect.x + "," + rect.y + " " + rect.width + "×" + rect.height + "]";
     }
-
 }
