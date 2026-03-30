@@ -2,39 +2,32 @@ package dungeon;
 
 import java.awt.*;
 
-/**
- * Couloir en L reliant le centre de deux salles feuilles adjacentes dans l'arbre BSP.
- * Un couloir se compose de deux segments : horizontal puis vertical (ou l'inverse).
- */
-public class Corridor {
-    public final Point from;
-    public final Point to;
-    public final int width = 2; // épaisseur du couloir en unités logiques
 
-    public Corridor(Point from, Point to) {
-        this.from = from;
-        this.to   = to;
-    }
+public record Corridor(Point from, Point to, boolean hFirst) {
+    public static final int THICKNESS = 2;
 
-    /**
-     * Dessine le couloir en L (horizontal + vertical) sur le Graphics fourni.
-     * Les coordonnées logiques sont multipliées par scale avant le dessin.
-     */
     public void draw(Graphics2D g2, int scale) {
         int x1 = from.x * scale;
         int y1 = from.y * scale;
-        int x2 = to.x   * scale;
-        int y2 = to.y   * scale;
-        int w  = width  * scale;
+        int x2 = to.x * scale;
+        int y2 = to.y * scale;
+        int t = THICKNESS * scale;
 
-        // Segment horizontal (de x1,y1 vers x2,y1)
-        int hx = Math.min(x1, x2);
-        int hLen = Math.abs(x2 - x1) + w;
-        g2.fillRect(hx, y1 - w / 2, hLen, w);
+        int midX = hFirst ? x2 : x1;
+        int midY = hFirst ? y1 : y2;
 
-        // Segment vertical (de x2,y1 vers x2,y2)
-        int vy = Math.min(y1, y2);
-        int vLen = Math.abs(y2 - y1) + w;
-        g2.fillRect(x2 - w / 2, vy, w, vLen);
+        // Segment 1
+        int sx = Math.min(x1, midX);
+        int sy = Math.min(y1, midY);
+        int sw = Math.abs(midX - x1) + t;
+        int sh = Math.abs(midY - y1) + t;
+        g2.fillRect(sx, sy, sw, sh);
+
+        // Segment 2
+        sx = Math.min(midX, x2);
+        sy = Math.min(midY, y2);
+        sw = Math.abs(x2 - midX) + t;
+        sh = Math.abs(y2 - midY) + t;
+        g2.fillRect(sx, sy, sw, sh);
     }
 }

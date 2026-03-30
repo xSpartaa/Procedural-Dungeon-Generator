@@ -3,20 +3,28 @@ package dungeon;
 import java.awt.*;
 import java.util.*;
 import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * Orchestre la génération complète du donjon :
+ * Génère le donjon complet :
  *  1. Split BSP
- *  2. Création des salles dans les feuilles
- *  3. Couloirs entre salles adjacentes
- *  4. Attribution des types spéciaux (entrée, mini-boss, boss)
+ *  2. Salles dans les feuilles
+ *  3. Couloirs via MST sur les conteneurs BSP frères (voisinage structurel)
+ *  4. Salles spéciales : entrée, mini-boss, boss
+ *
+ * STRATÉGIE DES COULOIRS :
+ * Au lieu de connecter des sous-arbres aléatoires, on exploite la structure BSP :
+ * à chaque nœud interne, on relie UNE feuille du sous-arbre gauche
+ * à UNE feuille du sous-arbre droit. Ces deux feuilles sont voisines par
+ * construction (elles partagent un bord commun). Cela garantit des couloirs courts
+ * et locaux, sans traversées absurdes.
  */
 public class DungeonGenerator {
 
-    private static final int MIN_SIZE    = 14; // taille minimale d'un conteneur
-    private static final int ITERATIONS  = 6;  // profondeur max de split
+    private static final int MIN_SIZE   = 15;
+    private static final int ITERATIONS = 5;
 
-    public final Node root;
+    public final Node           root;
     public final List<Node>     leaves    = new ArrayList<>();
     public final List<Corridor> corridors = new ArrayList<>();
 
@@ -35,26 +43,66 @@ public class DungeonGenerator {
         // 1. Split BSP
         splitRecursive(root, ITERATIONS);
 
-        // 2. Collecter les feuilles, créer les salles normales
+        // 2. Salles normales dans les feuilles
+        root.createRooms();
         root.collectLeaves(leaves);
-        for (Node leaf : leaves) {
-            leaf.createRooms();
-        }
 
-        // 3. Couloirs (relie les sous-arbres gauche / droit à chaque niveau)
-        root.connectRooms();
-        root.collectCorridors(corridors);
+        // 3. Couloirs structurels BSP
+        buildCorridors(root);
 
-        // 4. Choisir les salles spéciales
+        // 4. Salles spéciales
         assignSpecialRooms();
     }
 
-    /** Split récursif limité par le nombre d'itérations et la taille minimale. */
     private void splitRecursive(Node node, int depth) {
         if (depth <= 0) return;
         node.generate(MIN_SIZE);
         if (node.left  != null) splitRecursive(node.left,  depth - 1);
         if (node.right != null) splitRecursive(node.right, depth - 1);
+    }
+
+    // ---------------------------------------------------------------
+    // Couloirs : connexion structurelle BSP
+    // ---------------------------------------------------------------
+
+    /**
+     * Pour chaque nœud interne, on prend LA FEUILLE LA PLUS PROCHE de la frontière
+     * dans chaque sous-arbre et on les relie. Résultat : couloirs courts et locaux.
+     */
+    private void buildCorridors(Node node) {
+        if (node == null || node.isLeaf()) return;
+
+        // Connecter les deux sous-arbres enfants
+        buildCorridors(node.left);
+        buildCorridors(node.right);
+
+        // Choisir les feuilles représentantes de chaque côté
+        Node lLeaf = pickClosestLeaf(node.left,  node.right);
+        Node rLeaf = pickClosestLeaf(node.right, node.left);
+
+        if (lLeaf != null && rLeaf != null && lLeaf.room != null && rLeaf.room != null) {
+            Point p1 = lLeaf.room.center();
+            Point p2 = rLeaf.room.center();
+            boolean hFirst = ThreadLocalRandom.current().nextBoolean();
+            corridors.add(new Corridor(p1, p2, hFirst));
+        }
+    }
+
+    /**
+     * Parmi toutes les feuilles de 'subtree', retourne celle dont la salle
+     * est la plus proche du centre de 'other'.
+     */
+    private Node pickClosestLeaf(Node subtree, Node other) {
+        if (subtree == null) return null;
+        List<Node> candidates = new ArrayList<>();
+        subtree.collectLeaves(candidates);
+        if (candidates.isEmpty()) return null;
+
+        Point target = other.getCenter();
+        return candidates.stream()
+                .filter(n -> n.room != null)
+                .min(Comparator.comparingDouble(n -> distSq(n.room.center(), target)))
+                .orElse(null);
     }
 
     // ---------------------------------------------------------------
@@ -64,51 +112,40 @@ public class DungeonGenerator {
     private void assignSpecialRooms() {
         if (leaves.isEmpty()) return;
 
-        // --- Salle d'entrée : feuille dont le centre est le plus proche du coin haut-gauche ---
+        // Entrée : feuille la plus proche du coin haut-gauche
         Point origin = new Point(0, 0);
         entrance = leaves.stream()
-                .min(Comparator.comparingDouble(n -> distSq(centerOf(n), origin)))
+                .min(Comparator.comparingDouble(n -> distSq(n.getCenter(), origin)))
                 .orElse(leaves.get(0));
         entrance.room.type = RoomType.ENTRANCE;
 
-        // --- Salle de boss : feuille la plus loin de l'entrée (distance euclidienne centre-centre) ---
-        Point entranceCenter = centerOf(entrance);
+        // Boss : feuille la plus loin de l'entrée
+        Point ec = entrance.getCenter();
         boss = leaves.stream()
                 .filter(n -> n != entrance)
-                .max(Comparator.comparingDouble(n -> distSq(centerOf(n), entranceCenter)))
+                .max(Comparator.comparingDouble(n -> distSq(n.getCenter(), ec)))
                 .orElse(leaves.get(leaves.size() - 1));
-
-        // Recréer la salle de boss (plus grande)
         boss.createBossRoom();
 
-        // --- Salle de mini-boss : feuille la plus proche du milieu du chemin entrée→boss ---
-        Point mid = midPoint(entranceCenter, centerOf(boss));
+        // Mini-boss : feuille la plus proche du point médian entrée→boss
+        Point mid = midPoint(ec, boss.getCenter());
         miniBoss = leaves.stream()
                 .filter(n -> n != entrance && n != boss)
-                .min(Comparator.comparingDouble(n -> distSq(centerOf(n), mid)))
+                .min(Comparator.comparingDouble(n -> distSq(n.getCenter(), mid)))
                 .orElse(null);
-        if (miniBoss != null) {
-            miniBoss.room.type = RoomType.MINI_BOSS;
-        }
-
-        // --- L'entrée n'a qu'un seul couloir : on garde uniquement le corridor le plus proche ---
-        // (déjà géré structurellement car l'entrée est une feuille dans l'arbre BSP)
+        if (miniBoss != null) miniBoss.room.type = RoomType.MINI_BOSS;
     }
 
     // ---------------------------------------------------------------
-    // Utilitaires géométriques
+    // Géométrie
     // ---------------------------------------------------------------
-
-    private static Point centerOf(Node n) {
-        return (n.room != null) ? n.room.center() : n.getCenter();
-    }
 
     private static double distSq(Point a, Point b) {
         double dx = a.x - b.x, dy = a.y - b.y;
-        return dx * dx + dy * dy;
+        return dx*dx + dy*dy;
     }
 
     private static Point midPoint(Point a, Point b) {
-        return new Point((a.x + b.x) / 2, (a.y + b.y) / 2);
+        return new Point((a.x + b.x)/2, (a.y + b.y)/2);
     }
 }
