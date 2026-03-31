@@ -4,24 +4,20 @@ import java.awt.*;
 import java.util.*;
 import java.util.List;
 
-/**
- * Orchestre la génération du donjon :
- *  1. Split BSP
- *  2. Salles dans les feuilles
- *  3. Couloirs : à chaque nœud interne, on relie la feuille-bord gauche
- *     la plus proche de la frontière avec le sous-arbre droit
- *  4. Salles spéciales (entrée, mini-boss, boss)
- */
 public class DungeonGenerator {
 
-    private static final int MIN_SIZE   = 15;
+    private static final int MIN_SIZE   = 18;
     private static final int ITERATIONS = 5;
 
-    public final Node           root;
-    public final List<Node>     leaves    = new ArrayList<>();
+    public final Node        root;
+    public final List<Node>  leaves    = new ArrayList<>();
     public final List<Corridor> corridors = new ArrayList<>();
 
     public Node entrance, boss, miniBoss;
+
+    // Ensemble des paires déjà reliées (indices dans 'leaves')
+    // On utilise les indices une fois les feuilles collectées
+    private final Set<Long> pairSet = new HashSet<>();
 
     public DungeonGenerator(Rectangle worldRect) {
         root = new Node(worldRect);
@@ -32,88 +28,88 @@ public class DungeonGenerator {
         splitRecursive(root, ITERATIONS);
         root.createRooms();
         root.collectLeaves(leaves);
-        buildCorridors(root);
+        // Indexer les feuilles pour la déduplication
+        Map<Node,Integer> idx = new IdentityHashMap<>();
+        for (int i=0;i<leaves.size();i++) idx.put(leaves.get(i), i);
+        buildCorridors(root, idx);
         assignSpecialRooms();
     }
 
     private void splitRecursive(Node node, int depth) {
-        if (depth <= 0) return;
+        if (depth<=0) return;
         node.generate(MIN_SIZE);
-        if (node.left  != null) splitRecursive(node.left,  depth - 1);
-        if (node.right != null) splitRecursive(node.right, depth - 1);
+        if (node.left !=null) splitRecursive(node.left,  depth-1);
+        if (node.right!=null) splitRecursive(node.right, depth-1);
     }
 
-    // ---------------------------------------------------------------
-    // Couloirs : voisinage structurel BSP + connexion bord-à-bord
-    // ---------------------------------------------------------------
+    private void buildCorridors(Node node, Map<Node,Integer> idx) {
+        if (node==null || node.isLeaf()) return;
+        buildCorridors(node.left,  idx);
+        buildCorridors(node.right, idx);
 
-    private void buildCorridors(Node node) {
-        if (node == null || node.isLeaf()) return;
+        Node lLeaf = pickClosest(node.left,  node.right);
+        Node rLeaf = pickClosest(node.right, node.left);
+        if (lLeaf==null || rLeaf==null) return;
+        if (lLeaf==rLeaf) return;
+        if (lLeaf.room==null || rLeaf.room==null) return;
 
-        buildCorridors(node.left);
-        buildCorridors(node.right);
+        Integer li = idx.get(lLeaf), ri = idx.get(rLeaf);
+        if (li==null || ri==null) return;
 
-        // Feuille du sous-arbre gauche la plus proche du sous-arbre droit
-        Node lLeaf = pickClosestLeaf(node.left,  node.right);
-        // Feuille du sous-arbre droit la plus proche du sous-arbre gauche
-        Node rLeaf = pickClosestLeaf(node.right, node.left);
-
-        if (lLeaf != null && rLeaf != null
-                && lLeaf.room != null && rLeaf.room != null) {
+        // Clé symétrique avec les indices de feuilles (stables)
+        int a=Math.min(li,ri), b=Math.max(li,ri);
+        long key = ((long)a<<32)|b;
+        if (pairSet.add(key)) {
             corridors.add(new Corridor(lLeaf.room, rLeaf.room));
         }
     }
 
-    /**
-     * Parmi les feuilles de 'subtree', retourne celle dont la salle
-     * est la plus proche du centre de 'other'.
-     */
-    private Node pickClosestLeaf(Node subtree, Node other) {
-        if (subtree == null) return null;
-        List<Node> candidates = new ArrayList<>();
-        subtree.collectLeaves(candidates);
-        Point target = other.getCenter();
-        return candidates.stream()
-                .filter(n -> n.room != null)
-                .min(Comparator.comparingDouble(n -> distSq(n.room.center(), target)))
+    private Node pickClosest(Node subtree, Node other) {
+        if (subtree==null) return null;
+        List<Node> cands=new ArrayList<>();
+        subtree.collectLeaves(cands);
+        cands.removeIf(n->n.room==null);
+        if (cands.isEmpty()) return null;
+        Point target=other.getCenter();
+        return cands.stream()
+                .min(Comparator.comparingDouble(n->dist(n.room.center(),target)))
                 .orElse(null);
     }
-
-    // ---------------------------------------------------------------
-    // Salles spéciales
-    // ---------------------------------------------------------------
 
     private void assignSpecialRooms() {
         if (leaves.isEmpty()) return;
-
-        Point origin = new Point(0, 0);
-        entrance = leaves.stream()
-                .min(Comparator.comparingDouble(n -> distSq(n.getCenter(), origin)))
+        Point origin=new Point(0,0);
+        entrance=leaves.stream().filter(n->n.room!=null)
+                .min(Comparator.comparingDouble(n->dist(n.getCenter(),origin)))
                 .orElse(leaves.get(0));
-        entrance.room.type = RoomType.ENTRANCE;
+        entrance.room.type=RoomType.ENTRANCE;
 
-        Point ec = entrance.getCenter();
-        boss = leaves.stream()
-                .filter(n -> n != entrance)
-                .max(Comparator.comparingDouble(n -> distSq(n.getCenter(), ec)))
-                .orElse(leaves.get(leaves.size() - 1));
-        boss.createBossRoom();
-
-        Point mid = midPoint(ec, boss.getCenter());
-        miniBoss = leaves.stream()
-                .filter(n -> n != entrance && n != boss)
-                .min(Comparator.comparingDouble(n -> distSq(n.getCenter(), mid)))
+        Point ec=entrance.getCenter();
+        boss=leaves.stream().filter(n->n.room!=null && n!=entrance)
+                .max(Comparator.comparingDouble(n->dist(n.getCenter(),ec)))
                 .orElse(null);
-        if (miniBoss != null) miniBoss.room.type = RoomType.MINI_BOSS;
+        if (boss==null) return;
+
+        Room oldRoom=boss.room;
+        boss.createBossRoom();
+        Room newRoom=boss.room;
+        // Mettre à jour les corridors qui référençaient l'ancienne instance
+        for (int i=0;i<corridors.size();i++) {
+            Corridor c=corridors.get(i);
+            if (c.roomA==oldRoom||c.roomB==oldRoom) {
+                Room a=(c.roomA==oldRoom)?newRoom:c.roomA;
+                Room b=(c.roomB==oldRoom)?newRoom:c.roomB;
+                corridors.set(i,new Corridor(a,b));
+            }
+        }
+
+        Point mid=mid(ec,boss.getCenter());
+        miniBoss=leaves.stream().filter(n->n.room!=null&&n!=entrance&&n!=boss)
+                .min(Comparator.comparingDouble(n->dist(n.getCenter(),mid)))
+                .orElse(null);
+        if (miniBoss!=null) miniBoss.room.type=RoomType.MINI_BOSS;
     }
 
-    // ---------------------------------------------------------------
-
-    private static double distSq(Point a, Point b) {
-        double dx = a.x - b.x, dy = a.y - b.y;
-        return dx*dx + dy*dy;
-    }
-    private static Point midPoint(Point a, Point b) {
-        return new Point((a.x+b.x)/2, (a.y+b.y)/2);
-    }
+    private static double dist(Point a,Point b){double dx=a.x-b.x,dy=a.y-b.y;return dx*dx+dy*dy;}
+    private static Point  mid (Point a,Point b){return new Point((a.x+b.x)/2,(a.y+b.y)/2);}
 }
