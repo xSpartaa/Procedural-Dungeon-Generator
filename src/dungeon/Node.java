@@ -1,7 +1,6 @@
 package dungeon;
 
 import java.awt.*;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -61,7 +60,7 @@ public class Node {
     // --- Salles ---
 
     public void createRooms() {
-        if (isLeaf()) { room = new Room(rect, false); }
+        if (isLeaf()) { room = new Room(rect.x,rect.y,rect.width, rect.height); }
         else {
             if (left  != null) left.createRooms();
             if (right != null) right.createRooms();
@@ -69,7 +68,7 @@ public class Node {
     }
 
     public void createBossRoom() {
-        if (isLeaf()) { room = new Room(rect, true); room.type = RoomType.BOSS; }
+        if (isLeaf()) { room = new Room(rect.x,rect.y,rect.width,rect.height); room.type = RoomType.BOSS; }
     }
 
     // --- Utils ---

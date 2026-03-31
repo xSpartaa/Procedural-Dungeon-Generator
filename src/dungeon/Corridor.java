@@ -1,74 +1,49 @@
 package dungeon;
 
 import java.awt.Point;
+import java.util.List;
 
 /**
- * Couloir en L entre deux salles.
- * doorA = centre du bord de roomA côté couloir
- * doorB = centre du bord de roomB côté couloir
- * midX/midY = coude du L
+ * Couloir entre deux salles.
+ * Choisit l'orientation du L qui évite de traverser d'autres salles.
  */
 public class Corridor {
-
     public static final int THICKNESS = 3;
 
-    public final Room  roomA, roomB;
-    public final Point doorA, doorB;
-    public final int   midX, midY;
-    public final Side  sideA, sideB;
+    public final Room roomA, roomB;
+    public final int  ax, ay, bx, by, midX, midY;
 
-    public enum Side { TOP, BOTTOM, LEFT, RIGHT }
+    public Corridor(Room a, Room b, List<Room> allRooms) {
+        this.roomA = a; this.roomB = b;
+        Point ca = a.center(), cb = b.center();
+        ax = ca.x; ay = ca.y; bx = cb.x; by = cb.y;
 
-    public Corridor(Room a, Room b) {
-        this.roomA = a;
-        this.roomB = b;
+        int mid1X = bx, mid1Y = ay; // hFirst
+        int mid2X = ax, mid2Y = by; // vFirst
 
-        Point ca = a.center();
-        Point cb = b.center();
-        int dx = cb.x - ca.x;
-        int dy = cb.y - ca.y;
+        int col1 = score(ax,ay,mid1X,mid1Y,bx,by,a,b,allRooms);
+        int col2 = score(ax,ay,mid2X,mid2Y,bx,by,a,b,allRooms);
 
-        boolean hFirst = Math.abs(dx) >= Math.abs(dy);
+        if (col1 <= col2) { midX=mid1X; midY=mid1Y; }
+        else              { midX=mid2X; midY=mid2Y; }
+    }
 
-        if (hFirst) {
-            // Seg1 horizontal, Seg2 vertical
-            midX = cb.x;
-            midY = ca.y;
-
-            if (dx >= 0) {
-                doorA = new Point(a.x + a.width, ca.y); sideA = Side.RIGHT;
-            } else {
-                doorA = new Point(a.x, ca.y);            sideA = Side.LEFT;
-            }
-
-            if (dy == 0) {
-                if (dx >= 0) { doorB = new Point(b.x, cb.y);           sideB = Side.LEFT; }
-                else         { doorB = new Point(b.x + b.width, cb.y); sideB = Side.RIGHT; }
-            } else if (dy > 0) {
-                doorB = new Point(cb.x, b.y);            sideB = Side.TOP;
-            } else {
-                doorB = new Point(cb.x, b.y + b.height); sideB = Side.BOTTOM;
-            }
-
-        } else {
-            // Seg1 vertical, Seg2 horizontal
-            midX = ca.x;
-            midY = cb.y;
-
-            if (dy >= 0) {
-                doorA = new Point(ca.x, a.y + a.height); sideA = Side.BOTTOM;
-            } else {
-                doorA = new Point(ca.x, a.y);             sideA = Side.TOP;
-            }
-
-            if (dx == 0) {
-                if (dy >= 0) { doorB = new Point(cb.x, b.y);            sideB = Side.TOP; }
-                else         { doorB = new Point(cb.x, b.y + b.height); sideB = Side.BOTTOM; }
-            } else if (dx > 0) {
-                doorB = new Point(b.x, cb.y);             sideB = Side.LEFT;
-            } else {
-                doorB = new Point(b.x + b.width, cb.y);  sideB = Side.RIGHT;
-            }
+    private static int score(int ax,int ay,int mx,int my,int bx,int by,
+                             Room a,Room b,List<Room> rooms) {
+        int s=0;
+        for (Room r:rooms) {
+            if (r==a||r==b) continue;
+            if (crosses(ax,ay,mx,my,r)||crosses(mx,my,bx,by,r)) s++;
         }
+        return s;
+    }
+
+    public static boolean crosses(int x1,int y1,int x2,int y2,Room r) {
+        int h=THICKNESS/2;
+        int cx1,cy1,cx2,cy2;
+        if (y1==y2) { cx1=Math.min(x1,x2);cy1=y1-h;cx2=Math.max(x1,x2);cy2=y1+h; }
+        else if (x1==x2) { cx1=x1-h;cy1=Math.min(y1,y2);cx2=x1+h;cy2=Math.max(y1,y2); }
+        else return false;
+        return cx1<r.x+r.width-1 && cx2>r.x+1 && cy1<r.y+r.height-1 && cy2>r.y+1;
     }
 }
